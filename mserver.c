@@ -1,51 +1,57 @@
 /**
- *	mserver.c ¼òµ¥µÄweb·şÎñÆ÷£¬Ö§³ÖHTTTP1.0 GET 
+ *	mserver.c ç®€å•çš„webæœåŠ¡å™¨ï¼Œæ”¯æŒHTTTP1.0 GET 
  *
+ *	@author	:	MCX
+ *	@email	:	i_allblue@163.com
  */
 #include "socket_help.c"
 
 /**
- *	´¦ÀíÊÂÎñ(webÇëÇó)
+ *	å¤„ç†äº‹åŠ¡(webè¯·æ±‚)
  */
 void doit(int fd);
 
 /**
  * 
  */
-void read_requesthdrs(my_rio_t *rp);
+void read_requesthdrs(my_rio_t *rp, int *length);
 
 /**
- *	½âÎöuri
+ *	è§£æuri
  */
 int parse_uri(char *uri, char *filename, char *cgiargs);
 
 /**
- *	Ìá¹©¾²Ì¬×ÊÔ´ÇëÇó·şÎñ
+ *	æä¾›é™æ€èµ„æºè¯·æ±‚æœåŠ¡
  */
 void serve_static(int fd, char *filename, int filesize);
 
 /**
- *	»ñµÃÇëÇó×ÊÔ´µÄÀàĞÍ
+ *	æä¾›postè¯·æ±‚å¤„ç†
+ */ 
+void post_dynamic(int fd, char *filename, my_rio_t *rp, int content_length);	
+/**
+ *	è·å¾—è¯·æ±‚èµ„æºçš„ç±»å‹
  */
 void get_filetype(char *filename, char *filetype);
 
 /**
- *	Ìá¹©¶¯Ì¬×ÊÔ´ÇëÇó·şÎñ
+ *	æä¾›åŠ¨æ€èµ„æºè¯·æ±‚æœåŠ¡
  */
-void serve_dynamic(int fd, char *filename, char *cgiargs);
+void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 
 /**
- *	´íÎó´¦Àíº¯Êı
+ *	é”™è¯¯å¤„ç†å‡½æ•°
  */
 void client_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 /**
- *  mserver Èë¿Ú(main)
+ *  mserver å…¥å£(main)
  */
 int main(int argc, char **argv)
 {
 	//-------------------------
-    //	±äÁ¿¶¨Òå
+    //	å˜é‡å®šä¹‰
     //-------------------------
 	char *listen_port, client_port[MAXLINE], hostname[MAXLINE];
 	int listenfd, connfd;
@@ -53,7 +59,7 @@ int main(int argc, char **argv)
 	socklen_t clientlen;
 
 	//-------------------------
-    //	¼ì²âÃüÁîĞĞ²ÎÊı
+    //	æ£€æµ‹å‘½ä»¤è¡Œå‚æ•°
     //-------------------------
 	if (argc != 2)
 	{
@@ -64,90 +70,101 @@ int main(int argc, char **argv)
 	
 	listen_port = argv[1];
 	//--------------------------------------------------------------------------
-	//»ñµÃ¼àÌıÃèÊö·û £¨Ë¼¿¼ÎªÊ²Ã´Ö»ĞèÒª´ò¿ªÒ»¸ö¼àÌıÃèÊö·û£¡£¡£¡£©
-	//ÒòÎªÖ»ĞèÒªÒ»¸ö¼àÌı¼´¿É£¬Ò»¸öÏß³Ì¸ºÔğ¼àÌı£¬È»ºó´´½¨ĞÂµÄ½ø³Ì»òÏß³ÌÀ´Ö´ĞĞÈÎÎñ
+	//è·å¾—ç›‘å¬æè¿°ç¬¦ ï¼ˆæ€è€ƒä¸ºä»€ä¹ˆåªéœ€è¦æ‰“å¼€ä¸€ä¸ªç›‘å¬æè¿°ç¬¦ï¼ï¼ï¼ï¼‰
+	//å› ä¸ºåªéœ€è¦ä¸€ä¸ªç›‘å¬å³å¯ï¼Œä¸€ä¸ªçº¿ç¨‹è´Ÿè´£ç›‘å¬ï¼Œç„¶ååˆ›å»ºæ–°çš„è¿›ç¨‹æˆ–çº¿ç¨‹æ¥æ‰§è¡Œä»»åŠ¡
 	//--------------------------------------------------------------------------
 	listenfd = Open_listenfd(listen_port);
-	
-	//²»¶Ï´¦ÀíÁ¬½ÓÇëÇó
+
+	int log = open("log.txt", O_RDWR | O_APPEND,0);	
+	//dup2(log, STDOUT_FILENO);
+	// printf("hello,world\n");
+	//ä¸æ–­å¤„ç†è¿æ¥è¯·æ±‚
 	while (1)
 	{
 		clientlen = sizeof(clientaddr);
 
-		//»ñµÃÁ¬½ÓÌ×½Ó×ÖÃèÊö·û
+		//è·å¾—è¿æ¥å¥—æ¥å­—æè¿°ç¬¦
 		connfd = Accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
 		
-		//»ñµÃ¿Í»§¶ËÏàÓ¦ĞÅÏ¢(²ÎÊı×îºóÒ»¸öÎªflags = 0 ±íÊ¾²ÉÓÃÄ¬ÈÏĞĞÎª)
+		//è·å¾—å®¢æˆ·ç«¯ç›¸åº”ä¿¡æ¯(å‚æ•°æœ€åä¸€ä¸ªä¸ºflags = 0 è¡¨ç¤ºé‡‡ç”¨é»˜è®¤è¡Œä¸º)
 		getnameinfo((struct sockaddr *)&clientaddr, clientlen, hostname, MAXLINE, client_port, MAXLINE, 0);
-		//¿Í»§¶ËÁ¬½Ó³É¹¦
+		//å®¢æˆ·ç«¯è¿æ¥æˆåŠŸ
 		printf("Accepted connection from (%s, %s)\n", hostname, client_port);
 		
-		//´¦Àí¿Í»§¶ËÊÂÎñ(ÇëÇó)
+		//å¤„ç†å®¢æˆ·ç«¯äº‹åŠ¡(è¯·æ±‚)
 		doit(connfd);
 		
-		//¹Ø±ÕÁ¬½ÓÃèÊö·û
+		//å…³é—­è¿æ¥æè¿°ç¬¦
 		close(connfd);
 	}
+
+	// å…³é—­log
+	close(log);
 	return 0;
 }
 
 
 /**
- *	´¦ÀíÊÂÎñ(webÇëÇó)
+ *	å¤„ç†äº‹åŠ¡(webè¯·æ±‚)
  */
 void doit(int fd)
 {
-	//ÅĞ¶ÏÊÇ·ñÊÇ¾²Ì¬×ÊÔ´
+	//åˆ¤æ–­æ˜¯å¦æ˜¯é™æ€èµ„æº
 	int is_static;
-	//ÎÄ¼şÊôĞÔĞÅÏ¢
+	// æŠ¥æ–‡é•¿åº¦
+	int *p_length, length;
+	p_length = &length;
+	//æ–‡ä»¶å±æ€§ä¿¡æ¯
 	struct stat sbuf;
 	char filename[MAXLINE], cgiargs[MAXLINE];
 	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
 	my_rio_t rio;
 	
 	//--------------------
-	//¶ÁÈ¡ÇëÇóĞĞºÍÇëÇóÍ·²¿
+	//è¯»å–è¯·æ±‚è¡Œå’Œè¯·æ±‚å¤´éƒ¨
 	//--------------------
 	
-	//½«rioºÍÁ¬½ÓÃèÊö·û°ó¶¨£¬Ö±½ÓÈ¥´¦Àírio
+	//å°†rioå’Œè¿æ¥æè¿°ç¬¦ç»‘å®šï¼Œç›´æ¥å»å¤„ç†rio
 	my_rio_readinitb(&rio, fd);
-	//¶ÁÈ¡Ò»ĞĞ---ÇëÇóĞĞ
+	//è¯»å–ä¸€è¡Œ---è¯·æ±‚è¡Œ
 	my_rio_readlineb(&rio, buf, MAXLINE);
 	printf("Request Lines:\n");
 	printf("%s", buf);
-	//È¡µÃ²ÎÊı
+	// å¯ä»¥é€šè¿‡envè·å¾—å‚æ•°
+	//å–å¾—å‚æ•°
 	sscanf(buf, "%s %s %s", method, uri, version);
 	
-	//ÔİÊ±Ö§³ÖGET
-	if (strcasecmp(method, "GET"))
+	//æš‚æ—¶æ”¯æŒGET
+	if (strcasecmp(method, "GET") && strcasecmp(method, "POST"))
 	{
-		//´íÎó´¦Àí
+		//é”™è¯¯å¤„ç†
 		client_error(fd, method, "501", "Not implemented", "Mserver does not accetpt this method");
 		return;
 	}
 		
-	//´¦ÀíÇëÇóÍ·²¿(×¢ÒâÄÚ²¿Ö¸ÕëÓĞÒÆ¶¯)
-	read_requesthdrs(&rio);
-		
-	//½âÎöuri»ñµÃfilename cgiargs Í¬Ê±ÅĞ¶ÏÇëÇóµÄuriÊÇ·ñºÏ·¨
+	//å¤„ç†è¯·æ±‚å¤´éƒ¨(æ³¨æ„å†…éƒ¨æŒ‡é’ˆæœ‰ç§»åŠ¨)
+	printf("Request Headers:\n");
+	read_requesthdrs(&rio, p_length);
+
+	//è§£æuriè·å¾—filename cgiargs åŒæ—¶åˆ¤æ–­è¯·æ±‚çš„uriæ˜¯å¦åˆæ³•
 	is_static = parse_uri(uri, filename, cgiargs);
 	
-	//ÅĞ¶ÁÎÄ¼şÊÇ·ñ´æÔÚÇÒ¿É¶Á
+	//åˆ¤è¯»æ–‡ä»¶æ˜¯å¦å­˜åœ¨ä¸”å¯è¯»
 	if (stat(filename, &sbuf) < 0)
     { 
- 		//ËµÃ÷ÎÄ¼ş²»´æÔÚ
+ 		//è¯´æ˜æ–‡ä»¶ä¸å­˜åœ¨
 		client_error(fd, filename, "404", "Not found", "Sorry, Mserver couldn't find this file");
 		return;
     }
-	if (is_static) /* ¾²Ì¬×ÊÔ´  */
+	if (is_static) /* é™æ€èµ„æº  */
 	{
 		//--------------------------------
-        //	ºêµ÷ÓÃ
-   		//S_ISREG() - ÕâÊÇÒ»¸öÆÕÍ¨ÎÄ¼şÂğ
-		//S_ISDIR() - ÕâÊÇÒ»¸öÄ¿Â¼ÎÄ¼şÂğ
-		//S_ISSOCK()- ÕâÊÇÒ»¸öÍøÂçÌ×½Ó×ÖÂğ
+        //	å®è°ƒç”¨
+   		//S_ISREG() - è¿™æ˜¯ä¸€ä¸ªæ™®é€šæ–‡ä»¶å—
+		//S_ISDIR() - è¿™æ˜¯ä¸€ä¸ªç›®å½•æ–‡ä»¶å—
+		//S_ISSOCK()- è¿™æ˜¯ä¸€ä¸ªç½‘ç»œå¥—æ¥å­—å—
 		//--------------------------------
-		if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode )) /* ÅĞ¶ÏÊÇ·ñÒ»¸öÆÕÍ¨ÎÄ¼ş£¬ÇÒÓĞÈ¨Àû¶Á */
+		if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode )) /* åˆ¤æ–­æ˜¯å¦ä¸€ä¸ªæ™®é€šæ–‡ä»¶ï¼Œä¸”æœ‰æƒåˆ©è¯» */
 		{
 			client_error(fd, filename, "403", "Forbidden", "Mserver couldn't read this file");
 			return;
@@ -155,13 +172,19 @@ void doit(int fd)
 		serve_static(fd, filename, sbuf.st_size);
 	}
 	else
-	{	/* ¶¯Ì¬ÄÚÈİ */
-		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) /* ÅĞ¶ÏÊÇ·ñÊÇÒ»¸öÆÕÍ¨ÎÄ¼şÇÒ¿ÉÖ´ĞĞ */
+	{	/* åŠ¨æ€å†…å®¹ */
+		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) /* åˆ¤æ–­æ˜¯å¦æ˜¯ä¸€ä¸ªæ™®é€šæ–‡ä»¶ä¸”å¯æ‰§è¡Œ */
 		{
 			client_error(fd, filename, "403", "Forbidden", "Mserver couldn't run the CGI program");
 			return;
 		}
-		serve_dynamic(fd, filename, cgiargs);
+		/* åŒºåˆ†æ˜¯postè¯·æ±‚è¿˜æ˜¯getè¯·æ±‚ */
+		if (strcasecmp(method, "POST") == 0)
+		{	
+			post_dynamic(fd, filename, &rio, length);	
+		} else {
+			serve_dynamic(fd, filename, cgiargs, method);
+		}
 	}
 	/*	
 	while ((my_rio_readlineb(&rio, buf, MAXLINE)) != 0)
@@ -170,112 +193,131 @@ void doit(int fd)
 	}
 	*/
 	
-	//²»ÖªµÀÎªÊ²Ã´ÏÂÃæµÄread»áÒ»Ö±×èÈû
+	//ä¸çŸ¥é“ä¸ºä»€ä¹ˆä¸‹é¢çš„readä¼šä¸€ç›´é˜»å¡
 	//int res = read(fd, buf,2);
 	//printf("res = %d  %s\n", res, buf);
 		
 	
 	//send(fd, buf, strlen(buf), 1);
-	//·¢ÏÖÒ»¸öÎÊÌâ¼ÙÈçÖ´ĞĞÏÂÃæÕâÌõÓï¾ä£¬Ôò¿Í»§¶ËÎŞ·¨Á¢¿ÌÏÔÊ¾·şÎñ¶ËµÄĞÅÏ¢£¬µ«ÊÇÈ·ÊµÒÑ¾­ÊÕµ½ÁË£¬¾ÍÊÇ²»ÏÔÊ¾
+	//å‘ç°ä¸€ä¸ªé—®é¢˜å‡å¦‚æ‰§è¡Œä¸‹é¢è¿™æ¡è¯­å¥ï¼Œåˆ™å®¢æˆ·ç«¯æ— æ³•ç«‹åˆ»æ˜¾ç¤ºæœåŠ¡ç«¯çš„ä¿¡æ¯ï¼Œä½†æ˜¯ç¡®å®å·²ç»æ”¶åˆ°äº†ï¼Œå°±æ˜¯ä¸æ˜¾ç¤º
 	//sleep(100);
 }
 
 /**
- * ´¦ÀíÇëÇóÍ·²¿£¬¼òµ¥µÄÌø¹ıÇëÇóÍ·²¿ĞÅÏ¢£¬Ã»ÓĞ¾ßÌå´¦Àí²ÎÊı
+ * å¤„ç†è¯·æ±‚å¤´éƒ¨ï¼Œç®€å•çš„è·³è¿‡è¯·æ±‚å¤´éƒ¨ä¿¡æ¯ï¼Œæ²¡æœ‰å…·ä½“å¤„ç†å‚æ•°
  */
-void read_requesthdrs(my_rio_t *rp)
+void read_requesthdrs(my_rio_t *rp, int *length)
 {
-	char buf[MAXLINE];
-	
+	char buf[MAXLINE], *p, con[100];
+	int len = 1;
+
 	my_rio_readlineb(rp, buf, MAXLINE);
 	while (strcmp(buf, "\r\n"))
 	{
-		//Ò»ĞĞÒ»ĞĞµÄ¶ÁÈ¡(Ò²»á¶ÁÈ¡\n)
+		//ä¸€è¡Œä¸€è¡Œçš„è¯»å–(ä¹Ÿä¼šè¯»å–\n)
 		my_rio_readlineb(rp, buf, MAXLINE);
 		printf("%s", buf);	
+
+		//è·å¾—postæäº¤çš„Content-Length
+		// p = strstr(buf, "Content-Length:");
+		// if (p)	/* bufä¸­å«æœ‰content-length*/
+		// {
+		// 	p = buf + 15;	
+		// 	len = atoi(p); 
+		// 	*length = len;
+		// 	// *length = 10;
+		// }
+		if(strncasecmp(buf,"Content-Length:",15)==0)
+		{
+			p=&buf[15];	
+			p+=strspn(p," \t");
+			*length=atol(p);
+		}
 	}
 	return;
 }
 
+
+
 /**
- *	½âÎöuri
- *	Ä¬ÈÏ½«¶¯Ì¬×ÊÔ´·ÅÔÚcgi-binÄ¿Â¼ÏÂ
- *	@return  1 : ¶¯Ì¬ÄÚÈİ   0 £º ¾²Ì¬ÄÚÈİ  
+ *	è§£æuri
+ *	é»˜è®¤å°†åŠ¨æ€èµ„æºæ”¾åœ¨cgi-binç›®å½•ä¸‹
+ *	@return  1 : åŠ¨æ€å†…å®¹   0 ï¼š é™æ€å†…å®¹  
  */
 int parse_uri(char *uri, char *filename, char *cgiargs)
 {
 	char *ptr;
 
-	//Ä¬ÈÏÇëÇóÒ³Ãæindex.html
-	if (!strstr(uri, "cgi-bin")) /* ¾²Ì¬×ÊÔ´  */
+	//é»˜è®¤è¯·æ±‚é¡µé¢index.html
+	if (!strstr(uri, "cgi-bin")) /* é™æ€èµ„æº  */
 	{
-		strcpy(cgiargs, ""); //¾²Ì¬×ÊÔ´ Çå¿Õcgiargs
-		strcpy(filename, "."); //Éèµ±Ç°¹¤×÷Ä¿Â¼ÎªÖ÷Ä¿Â¼
-		strcat(filename, uri); //¼ÙÈçuriÊÇ /index.html Ôòfilename»á±ä³É ./index.html
+		strcpy(cgiargs, ""); //é™æ€èµ„æº æ¸…ç©ºcgiargs
+		strcpy(filename, "."); //è®¾å½“å‰å·¥ä½œç›®å½•ä¸ºä¸»ç›®å½•
+		strcat(filename, uri); //å‡å¦‚uriæ˜¯ /index.html åˆ™filenameä¼šå˜æˆ ./index.html
 	
-		//ÉèÖÃÄ¬ÈÏµÄÄ¿Â¼µÄÖ÷Ò³ÃæÊÇindex.html
+		//è®¾ç½®é»˜è®¤çš„ç›®å½•çš„ä¸»é¡µé¢æ˜¯index.html
 		if (uri[strlen(uri) - 1] == '/')
 		{
 			strcat(filename, "index.html");
 		}
 			return 1;
-	} else { /* ¶¯Ì¬×ÊÔ´ */
-		//Ä¬ÈÏ¶¯Ì¬×ÊÔ´µÄ¹¤×÷Ä¿Â¼ÔÚcgi-bin
-		ptr = index(uri, '?'); //Ä¿µÄÊÇÎªÁË»ñÈ¡²ÎÊı
+	} else { /* åŠ¨æ€èµ„æº */
+		//é»˜è®¤åŠ¨æ€èµ„æºçš„å·¥ä½œç›®å½•åœ¨cgi-bin
+		ptr = index(uri, '?'); //ç›®çš„æ˜¯ä¸ºäº†è·å–å‚æ•°
 		if (ptr)
 		{
 			strcpy(cgiargs, ptr + 1);
-			//¿ÉÄÜÊÇÏú»Ùptr
+			//å¯èƒ½æ˜¯é”€æ¯ptr
 			*ptr = '\0';
 		}	
 		else
-			//²ÎÊı¸³¿ÕÖµ
-			strcpy(cgiargs, "");
+			strcpy(cgiargs, ""); /* å‚æ•°èµ‹ç©ºå€¼ */
+
 		strcpy(filename, ".");
 		strcat(filename, uri);
 		return 0;
-	
     }	
 
 }
 
 /**
- *	Ìá¹©¾²Ì¬×ÊÔ´ÇëÇó·şÎñ
+ *	æä¾›é™æ€èµ„æºè¯·æ±‚æœåŠ¡
  */
 void serve_static(int fd, char *filename, int filesize)
 {
-	int srcfd; /* ÎÄ¼şÃèÊö·û */
-	char *srcp; /* ÎÄ¼şÓ³Éäµ½ÄÚ´æµÄÖ¸Õë */
+	int srcfd; /* æ–‡ä»¶æè¿°ç¬¦ */
+	char *srcp; /* æ–‡ä»¶æ˜ å°„åˆ°å†…å­˜çš„æŒ‡é’ˆ */
 	char filetype[MAXLINE], buf[MAXLINE];	
 
-	//¹¹ÔìÏìÓ¦Í·
+	//æ„é€ å“åº”å¤´
 	get_filetype(filename, filetype);
 	sprintf(buf, "HTTP/1.0 200 OK\r\n");
 	sprintf(buf, "%sServer: Mserver web Server\r\n", buf);
 	sprintf(buf, "%sConnection: close\r\n", buf);
 	sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
 	sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
-	//Êä³öĞÅÏ¢
+	//è¾“å‡ºä¿¡æ¯
 	my_writen(fd, buf, strlen(buf));
 	printf("Response headers:\n");
-	printf("%s", buf);
+	printf("%s", buf);/*	*/
 
-	//Ïò¿Í»§¶Ë·¢ËÍĞÅÏ¢ ÀûÓÃĞéÄâÄÚ´æÓ³Éä
-	srcfd = open(filename, O_RDONLY, 0); /* Ö»¶Á·½Ê½´ò¿ªÇëÇóÎÄ¼ş */	
-	srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); /* Ö±½Ó½«ÎÄ¼şÓ³Éäµ½ÄÚ´æ£¬Ğ§ÂÊ¸ß(ÏµÍ³µ÷ÓÃ°´ÕÕÒ³½øĞĞÓ³ÉäµÄ)*/
+	//å‘å®¢æˆ·ç«¯å‘é€ä¿¡æ¯ åˆ©ç”¨è™šæ‹Ÿå†…å­˜æ˜ å°„
+	srcfd = open(filename, O_RDONLY, 0); /* åªè¯»æ–¹å¼æ‰“å¼€è¯·æ±‚æ–‡ä»¶ */	
+	// ç±»ä¼¼äºbuffer
+	srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); /* ç›´æ¥å°†æ–‡ä»¶æ˜ å°„åˆ°å†…å­˜ï¼Œæ•ˆç‡é«˜(ç³»ç»Ÿè°ƒç”¨æŒ‰ç…§é¡µè¿›è¡Œæ˜ å°„çš„)*/
 	close(srcfd);
 	my_writen(fd, srcp, filesize);
-	munmap(srcp, filesize); /* Çå¿ÕÄÚ´æ£¬±ÜÃâÄÚ´æĞ¹Â¶ */
+	munmap(srcp, filesize); /* æ¸…ç©ºå†…å­˜ï¼Œé¿å…å†…å­˜æ³„éœ² */
 	
 }
 
 /**
- *	»ñµÃÇëÇó×ÊÔ´µÄÀàĞÍ
- *	Í¨¹ıÎÄ¼şÃû³Æ£¬»ñµÃÎÄ¼şÀàĞÍ
+ *	è·å¾—è¯·æ±‚èµ„æºçš„ç±»å‹
+ *	é€šè¿‡æ–‡ä»¶åç§°ï¼Œè·å¾—æ–‡ä»¶ç±»å‹
  */
 void get_filetype(char *filename, char *filetype)
 {
-	//ÅĞ¶ÏÖ÷´®ÖĞÊÇ·ñ°üº¬×Ó´®
+	//åˆ¤æ–­ä¸»ä¸²ä¸­æ˜¯å¦åŒ…å«å­ä¸²
 	if (strstr(filename, ".html"))
 		strcpy(filetype, "text/html");
 	else if (strstr(filename, ".gif"))
@@ -284,66 +326,130 @@ void get_filetype(char *filename, char *filetype)
 		strcpy(filetype, "image/png");
 	else if (strstr(filename, ".jpg"))
 		strcpy(filetype, "image/jpeg");
-	else /* ÎŞ¸ñÊ½ÕıÎÄ */
+	else /* æ— æ ¼å¼æ­£æ–‡ */
 		strcpy(filetype,"text/plain");
 }
 
 /**
- *	Ìá¹©¶¯Ì¬×ÊÔ´ÇëÇó·şÎñ
- *	´´½¨Ò»¸ö½ø³Ì£¬ÔÚ×Ó½ø³ÌÖĞÖ´ĞĞ³ÌĞò
+ *	æä¾›åŠ¨æ€èµ„æºè¯·æ±‚æœåŠ¡
+ *	åˆ›å»ºä¸€ä¸ªè¿›ç¨‹ï¼Œåœ¨å­è¿›ç¨‹ä¸­æ‰§è¡Œç¨‹åº
  */
-void serve_dynamic(int fd, char *filename, char *cgiargs)
+void serve_dynamic(int fd, char *filename, char *cgiargs, char * method)
 {
 	char *emptylist[] = {NULL};
 	char buf[MAXLINE];
 	
-	//¹¹ÔìHTTPÏìÓ¦
+	//æ„é€ HTTPå“åº”
 	sprintf(buf, "HTTP/1.0 200 OK\r\n");
 	my_writen(fd, buf, strlen(buf));
 	sprintf(buf, "Server: Mserver web server\r\n");
 	my_writen(fd, buf, strlen(buf));
 
-	if (fork() == 0) /* ´´½¨×Ó½ø³Ì */
+	if (fork() == 0) /* åˆ›å»ºå­è¿›ç¨‹ */
 	{
-		//ÉèÖÃ»·¾³±äÁ¿
+		//è®¾ç½®ç¯å¢ƒå˜é‡
 		setenv("QUERY_STRING", cgiargs, 1);
-		dup2(fd, STDOUT_FILENO); /* ÖØ¶¨Ïò(³ÌĞòµÄÖ´ĞĞ½á¹û»áÊä³öµ½±ê×¼Êä³ö£¬È»ºóÖØ¶¨Ïòµ½Á¬½ÓÌ×½Ó×Ö) */
-		execve(filename, emptylist, environ); /* Ö´ĞĞ³ÌĞò */
+		dup2(fd, STDOUT_FILENO); /* é‡å®šå‘(ç¨‹åºçš„æ‰§è¡Œç»“æœä¼šè¾“å‡ºåˆ°æ ‡å‡†è¾“å‡ºï¼Œç„¶åé‡å®šå‘åˆ°è¿æ¥å¥—æ¥å­—) */
+		execve(filename, emptylist, environ); /* æ‰§è¡Œç¨‹åº */
 	}
-	wait(NULL); /* »ØÊÕ½ø³Ì */
+	wait(NULL); /* å›æ”¶è¿›ç¨‹ */
 }
 
 /**
- *	´íÎó´¦Àíº¯Êı
- * @fd Á¬½ÓÃèÊö·û
- * @cause ×ÊÔ´Ãû³Æ
- * @errnum ´íÎó×´Ì¬Âë
- * @shortmsg ´íÎóĞÅÏ¢
- * @longmsg ´íÎóÌáÊ¾ĞÅÏ¢	
+ *	å¤„ç†postè¯·æ±‚èµ„æº
+ *	åˆ›å»ºä¸€ä¸ªè¿›ç¨‹ï¼Œåœ¨å­è¿›ç¨‹ä¸­æ‰§è¡Œç¨‹åº
+ */
+void post_dynamic(int fd, char *filename, my_rio_t *rp, int length)
+{
+	char *emptylist[] = {NULL}, *content_length;
+	char buf[MAXLINE], data[MAXLINE];
+	int post_pipe[2];	/* å€ŸåŠ©ç®¡é“å‘é€postæ•°æ®åˆ°æ ‡å‡†è¾“å‡º */
+	pid_t pid;
+
+	//æ„é€ HTTPå“åº”
+	// sprintf(buf, "HTTP/1.0 200 OK\r\n");
+	// my_writen(fd, buf, strlen(buf));
+	// sprintf(buf, "Server: Mserver web server\r\n");
+	// my_writen(fd, buf, strlen(buf));
+
+	sprintf(content_length, "%d", length);
+	memset(data, 0, MAXLINE);
+
+
+
+	//-------------------------------------------
+	// å€ŸåŠ©tinyhttpçš„å®ç°ï¼Œå‘ç°postæ˜¯å€ŸåŠ©ç®¡é“è¿›è¡Œé€šè®¯çš„
+	//-------------------------------------------
+
+	// è·å¾—postæ•°æ®
+	// my_rio_readnb(rp, data, length);	/* åˆ™éœ€è¦æŠŠdataæ•°æ®ä¼ é€’åˆ°(å­è¿›ç¨‹)æ ‡å‡†è¾“å…¥ä¸­ */	
+	// printf("%s\n",data);	 /* è·å–åˆ°postæ•°æ® */
+
+
+	// åˆ›å»ºç®¡é“ post_pipe(1:å†™ç«¯ 0:è¯»ç«¯)
+	// çˆ¶è¿›ç¨‹æ‰“å¼€post_pipe[1] å†™ç«¯
+	//      å…³é—­post_pipe[0] è¯»ç«¯
+	// å¤è€çš„ç®¡é“æ˜¯åŠåŒå·¥çš„ï¼Œæ•°æ®æµæ˜¯å•å‘çš„
+	pipe(post_pipe);
+
+	// close(post_pipe[0]);
+	// my_writen(post_pipe[1], data, length);
+/*---------------------------ä¸ºä»€ä¹ˆä¸èƒ½è®©çˆ¶è¿›ç¨‹è¯»æ•°æ® è€Œå­è¿›ç¨‹å»æ‰§è¡Œ(éš¾é“åªæœ‰è¿™æ ·æ‰èƒ½ä¿è¯æ•°æ®è¯»å–å—)---------------------------*/
+	if ((pid = fork()) == 0) /* åˆ›å»ºå­è¿›ç¨‹ */
+	{
+		
+		close(post_pipe[0]);
+      	my_rio_readnb(rp,data,length);  
+        my_writen(post_pipe[1],data,length); /* å‘ç®¡é“å†™ç«¯å†™å…¥postæ•°æ® */
+        exit(0);
+		// dup2(post_pipe[0], STDIN_FILENO);
+		// close(post_pipe[0]);
+		// content_length = "101";
+		// printf("hello world%s\n",content_length);
+		// setenv("CONTENT-LENGTH", content_length, 1);
+		// dup2(fd, STDOUT_FILENO); /* é‡å®šå‘(ç¨‹åºçš„æ‰§è¡Œç»“æœä¼šè¾“å‡ºåˆ°æ ‡å‡†è¾“å‡ºï¼Œç„¶åé‡å®šå‘åˆ°è¿æ¥å¥—æ¥å­—) */
+		// execve(filename, emptylist, environ); /* æ‰§è¡Œç¨‹åº */
+	} 
+	dup2(post_pipe[0], STDIN_FILENO); /* ç®¡é“è¯»ç«¯é‡å®šå‘åˆ°æ ‡å‡†è¾“å‡º */
+	close(post_pipe[0]);
+	close(post_pipe[1]);
+	setenv("CONTENT-LENGTH", content_length, 1);
+
+	dup2(fd, STDOUT_FILENO); /* */
+	execve(filename, emptylist, environ); /* æ‰§è¡Œç¨‹åº */
+
+	wait(NULL); /* å›æ”¶è¿›ç¨‹ */
+
+}
+/**
+ *	é”™è¯¯å¤„ç†å‡½æ•°
+ * @fd è¿æ¥æè¿°ç¬¦
+ * @cause èµ„æºåç§°
+ * @errnum é”™è¯¯çŠ¶æ€ç 
+ * @shortmsg é”™è¯¯ä¿¡æ¯
+ * @longmsg é”™è¯¯æç¤ºä¿¡æ¯	
  */
 void client_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
 {
 	char buf[MAXLINE], body[MAXLINE];
 	
-	//¹¹ÔìÏìÓ¦ÕıÎÄ
+	//æ„é€ å“åº”æ­£æ–‡
 	sprintf(body, "<html><title>Mserver Error</title>");
-	sprintf(body, "%s<body bgcolor=\"ffffff\">\r\n", body);
+	sprintf(body, "%s<body bgcolor=\"#ffffff\">\r\n", body);
 	sprintf(body, "%s%s: %s\r\n", body, errnum,shortmsg);
 	sprintf(body, "%s<p>%s:%s\r\n", body, longmsg, cause);
 	sprintf(body, "%s<hr><em>The Mserver web server</em>\r\n", body);
 
-	//Êä³öÏìÓ¦ĞÅÏ¢
+	//è¾“å‡ºå“åº”ä¿¡æ¯
 	sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-	//·¢ËÍĞÅÏ¢
+	//å‘é€ä¿¡æ¯
 	my_writen(fd, buf, strlen(buf));
 	sprintf(buf, "Content-type: text/html\r\n");
 	my_writen(fd, buf, strlen(buf));
-	//Á½¸ö»Ø³µ»»ĞĞ
+	//ä¸¤ä¸ªå›è½¦æ¢è¡Œ
 	sprintf(buf, "Content-length: %d\r\n\r\n",(int)strlen(body));
-	//Êä³öĞÅÏ¢
+	//è¾“å‡ºä¿¡æ¯
 	my_writen(fd, buf, strlen(buf));
-	//Êä³öÏìÓ¦ÄÚÈİ
+	//è¾“å‡ºå“åº”å†…å®¹
 	my_writen(fd, body, strlen(body));
 }
-
-
