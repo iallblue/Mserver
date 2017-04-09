@@ -1,0 +1,10 @@
+this will show in the file
+this should be show stdout
+this will show in the file
+this should be show stdout
+this will show in the file stdoutfd = 1
+this should be show stdout
+ stdoutfd = 1this will show in the file stdoutfd = 1
+this should be show stdout stdoutfd = 1
+this will show in the file stdoutfd = 1
+万水千山总是情
