@@ -1,5 +1,5 @@
 /**
- *	mserver.c 简单的web服务器，支持HTTTP1.0 GET 
+ *	mserver.c 简单的web服务器，支持HTTTP1.0 GET POST
  *
  *	@author	:	MCX
  *	@email	:	i_allblue@163.com
@@ -12,7 +12,7 @@
 void doit(int fd);
 
 /**
- * 
+ * 处理请求行
  */
 void read_requesthdrs(my_rio_t *rp, int *length);
 
